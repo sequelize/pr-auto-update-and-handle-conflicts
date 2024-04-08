@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true
+  },
+  "include": ["./src/**/*.ts"]
+}

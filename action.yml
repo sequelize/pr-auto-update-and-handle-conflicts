@@ -1,0 +1,47 @@
+name: 'Auto-update PR & Notify Conflicts'
+description: 'A GitHub Action to auto-update PRs based on criteria and notify about merge conflicts'
+inputs:
+  conflict-label:
+    description: 'Label to add to all PRs with merge conflicts'
+    required: false
+  conflict-marks-as-draft:
+    description: 'Mark conflicted PRs as draft'
+    required: false
+  conflict-notify-comment:
+    description: 'Comment to add to PRs with merge conflicts (will only be added once per PR)'
+    required: false
+  conflict-requires-ready-state:
+    description: 'Only process conflicts on PRs that are in the specified state. Accepts "all", "draft", and "ready_for_review" (default)'
+    required: false
+    default: 'all'
+  conflict-requires-labels:
+    description: 'Only process conflicts on PRs that have one of the specified labels (comma-separated list of labels)'
+    required: false
+  conflict-excluded-labels:
+    description: 'Do not process conflicts on PRs that have one of the specified labels. Takes precedence over conflict-required-labels (comma-separated list of labels)'
+    required: false
+  conflict-excluded-authors:
+    description: 'Do not process conflicts on PRs that were opened by the specified authors (comma-separated list of usernames)'
+    required: false
+  update-requires-auto-merge:
+    description: 'Only update PRs that have auto-merge enabled'
+    required: false
+  update-requires-ready-state:
+    description: 'Only update PRs that are in the specified state. Accepts "all", "draft", and "ready_for_review" (default)'
+    required: false
+    default: 'ready_for_review'
+  update-requires-labels:
+    description: 'Only update PRs that have one of the specified labels (comma-separated list of labels)'
+    required: false
+  update-excluded-labels:
+    description: 'Do not update PRs that have one of the specified labels. Takes precedence over update-required-labels (comma-separated list of labels)'
+    required: false
+  update-excluded-authors:
+    description: 'Do not update PRs that were opened by the specified authors (comma-separated list of usernames)'
+    required: false
+runs:
+  using: 'node20'
+  main: 'lib/index.js'
+branding:
+  color: 'purple'
+  icon: 'git-merge'
