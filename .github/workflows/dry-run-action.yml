@@ -10,7 +10,9 @@ jobs:
   autoupdate:
     runs-on: ubuntu-latest
     steps:
-      - uses: .
+      - name: Test Local Action
+        id: test-action
+        uses: ./
         with:
           dry-run: true
           conflict-label: 'conflicted'
@@ -19,3 +21,10 @@ jobs:
           update-requires-labels: 'test-pr'
         env:
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+      - name: Print Output
+        id: output
+        run: |
+          echo "Updated PRs:"
+          echo "${{ steps.test-action.outputs.updated-prs }}"
+          echo "Conflicted PRs:"
+          echo "${{ steps.test-action.outputs.conflicted-prs }}"
