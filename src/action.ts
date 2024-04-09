@@ -432,7 +432,7 @@ async function* iteratePullRequests(params: { search: string }) {
       yield pullRequest;
     }
 
-    if (response.search.pageInfo.hasNextPage) {
+    if (!response.search.pageInfo.hasNextPage) {
       break;
     }
 
