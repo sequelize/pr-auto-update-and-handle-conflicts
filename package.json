@@ -4,6 +4,13 @@
   "type": "module",
   "license": "MIT",
   "packageManager": "yarn@4.1.1",
+  "scripts": {
+    "build": "tsc",
+    "format:eslint": "eslint . --fix",
+    "format:prettier": "prettier --write .",
+    "test:eslint": "eslint",
+    "test:prettier": "prettier --check ."
+  },
   "devDependencies": {
     "@ephys/eslint-config-typescript": "20.1.2",
     "@octokit/webhooks-types": "7.5.0",

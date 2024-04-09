@@ -7,9 +7,6 @@ inputs:
   conflict-marks-as-draft:
     description: 'Mark conflicted PRs as draft'
     required: false
-  conflict-notify-comment:
-    description: 'Comment to add to PRs with merge conflicts (will only be added once per PR)'
-    required: false
   conflict-requires-ready-state:
     description: 'Only process conflicts on PRs that are in the specified state. Accepts "all", "draft", and "ready_for_review" (default)'
     required: false
@@ -21,7 +18,7 @@ inputs:
     description: 'Do not process conflicts on PRs that have one of the specified labels. Takes precedence over conflict-required-labels (comma-separated list of labels)'
     required: false
   conflict-excluded-authors:
-    description: 'Do not process conflicts on PRs that were opened by the specified authors (comma-separated list of usernames)'
+    description: 'Do not process conflicts on PRs that were opened by the specified authors (comma-separated list of usernames. If the author is an app, it must be in the format "app/<login>")'
     required: false
   update-requires-auto-merge:
     description: 'Only update PRs that have auto-merge enabled'
@@ -37,8 +34,13 @@ inputs:
     description: 'Do not update PRs that have one of the specified labels. Takes precedence over update-required-labels (comma-separated list of labels)'
     required: false
   update-excluded-authors:
-    description: 'Do not update PRs that were opened by the specified authors (comma-separated list of usernames)'
+    description: 'Do not update PRs that were opened by the specified authors (comma-separated list of usernames. If the author is an app, it must be in the format "app/<login>")'
     required: false
+outputs:
+  updated-prs:
+    description: 'The list of PRs numbers that were updated (comma-separated list)'
+  conflicted-prs:
+    description: 'The list of PRs numbers that have merge conflicts (comma-separated list)'
 runs:
   using: 'node20'
   main: 'lib/index.js'

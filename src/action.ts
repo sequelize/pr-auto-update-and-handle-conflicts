@@ -7,21 +7,6 @@ import { setTimeout } from 'node:timers/promises';
 
 // TODO:
 // - compile script
-// - add README
-// - support the following options
-//   - conflict-marks-as-draft:
-//   - conflict-notify-comment:
-//   - conflict-requires-ready-state:
-//   - conflict-requires-labels:
-//   - conflict-excluded-labels:
-//   - conflict-excluded-authors:
-//   - update-requires-auto-merge:
-//   - update-requires-ready-state:
-//   - update-requires-labels:
-//   - update-excluded-labels:
-//   - update-excluded-authors:
-
-const PREFIX_HEAD = 'refs/heads/';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
@@ -32,7 +17,36 @@ const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
  */
 const userBot = process.env.PAT ? github.getOctokit(process.env.PAT) : githubBot;
 
+function getCommaSeparatedInput(name: string) {
+  return core
+    .getInput(name)
+    .split(',')
+    .map(label => label.trim());
+}
+
+function getEnumInput<T extends string>(name: string, values: readonly T[]): T {
+  const value = core.getInput(name);
+  if (!values.includes(value as T)) {
+    throw new Error(`${name} must be one of ${values.join(', ')}.`);
+  }
+
+  return value as T;
+}
+
+const READY_STATES = ['all', 'draft', 'ready_for_review'] as const;
+
 const conflictLabel = core.getInput('conflict-label');
+const conflictMarksAsDraft = core.getBooleanInput('conflict-marks-as-draft');
+const conflictRequiresReadyState = getEnumInput('conflict-requires-ready-state', READY_STATES);
+const conflictRequiresLabels = getCommaSeparatedInput('conflict-requires-labels');
+const conflictExcludedLabels = getCommaSeparatedInput('conflict-excluded-labels');
+const conflictExcludedAuthors = getCommaSeparatedInput('conflict-excluded-authors');
+
+const updateRequiresAutoMerge = core.getBooleanInput('update-requires-auto-merge');
+const updateRequiresReadyState = getEnumInput('update-requires-ready-state', READY_STATES);
+const updateRequiresLabels = getCommaSeparatedInput('update-requires-labels');
+const updateExcludedLabels = getCommaSeparatedInput('update-excluded-labels');
+const updateExcludedAuthors = getCommaSeparatedInput('update-excluded-authors');
 
 interface RepositoryId {
   owner: string;
@@ -40,11 +54,16 @@ interface RepositoryId {
 }
 
 interface PullRequest {
+  author: {
+    __typename: 'Bot' | 'User' | string;
+    login: string;
+  };
   autoMergeRequest: null | {
     enabledAt: string;
   };
   baseRef: { name: string };
   headRef: { name: string };
+  isDraft: boolean;
   labels: {
     nodes: [
       {
@@ -58,8 +77,13 @@ interface PullRequest {
 
 const pullRequestFragment = `
 fragment PR on PullRequest {
+  author {
+    __typename
+    login
+  }
   number
   mergeable
+  isDraft
   autoMergeRequest {
     enabledAt
   }
@@ -72,6 +96,9 @@ fragment PR on PullRequest {
   headRef { name }
 }
 `;
+
+const updatedPrs: number[] = [];
+const conflictedPrs: number[] = [];
 
 switch (process.env.GITHUB_EVENT_NAME) {
   case 'push':
@@ -89,6 +116,9 @@ switch (process.env.GITHUB_EVENT_NAME) {
     );
 }
 
+core.setOutput('updated-prs', updatedPrs.join(','));
+core.setOutput('conflicted-prs', conflictedPrs.join(','));
+
 async function processPushEvent() {
   isString.assert(process.env.GITHUB_EVENT_PATH);
 
@@ -97,7 +127,12 @@ async function processPushEvent() {
     await fs.readFile(process.env.GITHUB_EVENT_PATH),
   ) as unknown as PushEvent;
 
-  const targetBranch = ref.replace(PREFIX_HEAD, '');
+  const HEADS_PREFIX = 'refs/heads/';
+  if (!ref.startsWith(HEADS_PREFIX)) {
+    return;
+  }
+
+  const targetBranch = ref.slice(HEADS_PREFIX.length);
   const repositoryId = {
     repo: repository.name,
     owner: repository.owner.name ?? repository.owner.login,
@@ -146,15 +181,14 @@ async function processPullRequestEvent() {
 async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest) {
   switch (pullRequest.mergeable) {
     case 'CONFLICTING':
-      await addConflictLabel(repositoryId, pullRequest);
+      await handleConflict(repositoryId, pullRequest);
       break;
 
     case 'MERGEABLE': {
-      const promises: Array<Promise<any>> = [removeConflictLabel(repositoryId, pullRequest)];
-
-      if (pullRequest.autoMergeRequest !== null) {
-        promises.push(updatePrBranchIfBehind(repositoryId, pullRequest));
-      }
+      const promises: Array<Promise<any>> = [
+        removeConflictLabel(repositoryId, pullRequest),
+        updatePrBranch(repositoryId, pullRequest),
+      ];
 
       await Promise.all(promises);
 
@@ -162,7 +196,7 @@ async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest) {
     }
 
     case 'UNKNOWN': {
-      console.info(`Conflict state of PR ${pullRequest.number} is not yet known. Retrying.`);
+      console.info(`[PR ${pullRequest.number}] Conflict state is not yet known. Retrying.`);
       // Conflicting state has not been computed yet. Try again in one second
       await setTimeout(1000);
 
@@ -174,13 +208,39 @@ async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest) {
   }
 }
 
-async function updatePrBranchIfBehind(repositoryId: RepositoryId, pullRequest: PullRequest) {
+function prHasAnyLabel(pullRequest: PullRequest, labels: string[]) {
+  return pullRequest.labels.nodes.some(label => labels.includes(label.name));
+}
+
+async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullRequest) {
+  if (updateRequiresAutoMerge && !pullRequest.autoMergeRequest) {
+    return;
+  }
+
+  if (updateRequiresLabels.length > 0 && !prHasAnyLabel(pullRequest, updateRequiresLabels)) {
+    return;
+  }
+
+  if (updateExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, updateRequiresLabels)) {
+    return;
+  }
+
+  if (updateExcludedAuthors.includes(getUserIdentity(pullRequest.author))) {
+    return;
+  }
+
+  if (!prMatchesReadyState(pullRequest, updateRequiresReadyState)) {
+    return;
+  }
+
   const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
   if (!isBehind) {
     return;
   }
 
-  console.info(`Updating PR ${pullRequest.number}.`);
+  updatedPrs.push(pullRequest.number);
+
+  console.info(`[${pullRequest.number}] Updating branch.`);
 
   // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
   return userBot.rest.pulls.updateBranch({
@@ -226,31 +286,60 @@ async function checkPrIsBehindTarget(
   return response.repository.ref.compare.behindBy > 0;
 }
 
-async function addConflictLabel(
-  repositoryId: RepositoryId,
-  pullRequest: PullRequest,
-): Promise<void> {
-  if (pullRequest.labels.nodes.some(label => label.name === conflictLabel)) {
+async function handleConflict(repositoryId: RepositoryId, pullRequest: PullRequest): Promise<void> {
+  if (!conflictLabel && !conflictMarksAsDraft) {
     return;
   }
 
-  console.info(`PR ${pullRequest.number} has conflicts, adding conflict label.`);
-  await githubBot.rest.issues.addLabels({
-    ...repositoryId,
-    issue_number: pullRequest.number,
-    labels: [conflictLabel],
-  });
+  if (!isConflictManagementEnabledForPr(pullRequest)) {
+    return;
+  }
+
+  conflictedPrs.push(pullRequest.number);
+
+  const promises: Array<Promise<any>> = [];
+  if (conflictLabel && !pullRequest.labels.nodes.some(label => label.name === conflictLabel)) {
+    console.info(`[PR ${pullRequest.number}] Adding conflict label.`);
+    promises.push(
+      githubBot.rest.issues.addLabels({
+        ...repositoryId,
+        issue_number: pullRequest.number,
+        labels: [conflictLabel],
+      }),
+    );
+  }
+
+  if (conflictMarksAsDraft) {
+    console.info(`[PR ${pullRequest.number}] Marking as draft due to conflicts.`);
+    promises.push(
+      githubBot.rest.pulls.update({
+        ...repositoryId,
+        pull_number: pullRequest.number,
+        draft: true,
+      }),
+    );
+  }
+
+  await Promise.all(promises);
 }
 
 async function removeConflictLabel(
   repositoryId: RepositoryId,
   pullRequest: PullRequest,
 ): Promise<void> {
+  if (!conflictLabel) {
+    return;
+  }
+
+  if (!isConflictManagementEnabledForPr(pullRequest)) {
+    return;
+  }
+
   if (!pullRequest.labels.nodes.some(label => label.name === conflictLabel)) {
     return;
   }
 
-  console.info(`PR ${pullRequest.number} does not have conflcits, removing conflict label.`);
+  console.info(`[PR ${pullRequest.number}] No conflict, removing conflict label.`);
   await githubBot.rest.issues.removeLabel({
     ...repositoryId,
     issue_number: pullRequest.number,
@@ -334,4 +423,45 @@ async function* iteratePullRequests(params: { search: string }) {
 
     cursor = response.search.pageInfo.endCursor;
   }
+}
+
+function getUserIdentity(author: PullRequest['author']) {
+  if (author.__typename === 'Bot') {
+    return `app/${author.login}`;
+  }
+
+  return author.login;
+}
+
+function prMatchesReadyState(pullRequest: PullRequest, readyState: (typeof READY_STATES)[number]) {
+  switch (readyState) {
+    case 'all':
+      return true;
+
+    case 'draft':
+      return pullRequest.isDraft;
+
+    case 'ready_for_review':
+      return !pullRequest.isDraft;
+  }
+}
+
+function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
+  if (!prMatchesReadyState(pullRequest, conflictRequiresReadyState)) {
+    return false;
+  }
+
+  if (conflictRequiresLabels.length > 0 && !prHasAnyLabel(pullRequest, conflictRequiresLabels)) {
+    return false;
+  }
+
+  if (conflictExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, conflictExcludedLabels)) {
+    return false;
+  }
+
+  if (conflictExcludedAuthors.includes(getUserIdentity(pullRequest.author))) {
+    return false;
+  }
+
+  return true;
 }
