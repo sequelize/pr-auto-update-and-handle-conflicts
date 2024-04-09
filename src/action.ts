@@ -5,9 +5,6 @@ import { isString } from '@sequelize/utils';
 import fs from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 
-// TODO:
-// - compile script
-
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);

@@ -1,5 +1,5 @@
 {
-  "name": "@sequelize/pr-auto-update-and-conflict-notify",
+  "name": "@sequelize/pr-auto-update-and-handle-conflicts",
   "private": true,
   "type": "module",
   "license": "MIT",
