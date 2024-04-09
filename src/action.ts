@@ -141,13 +141,15 @@ async function processPushEvent() {
 
   /**
    * Conflict state is not computed instantaneously.
-   * This gives GitHub 5 seconds to compute it.
+   * This gives GitHub 10 seconds to compute it.
    */
-  await setTimeout(5000);
+  await setTimeout(10_000);
 
   const search = `repo:${repositoryId.owner}/${repositoryId.repo} is:open is:pr base:${targetBranch}`;
   for await (const pullRequest of iteratePullRequests({ search })) {
-    await processPr(repositoryId, pullRequest);
+    console.info(`Handling PRs ${pullRequest.map(pr => pr.number).join(', ')}`);
+
+    await Promise.all(pullRequest.map(async pr => processPr(repositoryId, pr)));
   }
 }
 
@@ -442,9 +444,7 @@ async function* iteratePullRequests(params: { search: string }) {
       },
     );
 
-    for (const pullRequest of response.search.nodes) {
-      yield pullRequest;
-    }
+    yield response.search.nodes;
 
     if (!response.search.pageInfo.hasNextPage) {
       break;
