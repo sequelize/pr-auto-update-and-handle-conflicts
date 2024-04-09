@@ -4,9 +4,11 @@ inputs:
   conflict-label:
     description: 'Label to add to all PRs with merge conflicts'
     required: false
+    default: ''
   conflict-marks-as-draft:
     description: 'Mark conflicted PRs as draft'
     required: false
+    default: 'false'
   conflict-requires-ready-state:
     description: 'Only process conflicts on PRs that are in the specified state. Accepts "all", "draft", and "ready_for_review" (default)'
     required: false
@@ -14,18 +16,23 @@ inputs:
   conflict-requires-labels:
     description: 'Only process conflicts on PRs that have one of the specified labels (comma-separated list of labels)'
     required: false
+    default: ''
   conflict-excluded-labels:
     description: 'Do not process conflicts on PRs that have one of the specified labels. Takes precedence over conflict-required-labels (comma-separated list of labels)'
     required: false
+    default: ''
   conflict-excluded-authors:
     description: 'Do not process conflicts on PRs that were opened by the specified authors (comma-separated list of usernames. If the author is an app, it must be in the format "app/<login>")'
     required: false
+    default: ''
   update-pr-branches:
     description: 'Automatically update PR branches with the latest changes from the target branch'
     required: false
+    default: 'false'
   update-requires-auto-merge:
     description: 'Only update PRs that have auto-merge enabled'
     required: false
+    default: 'false'
   update-requires-ready-state:
     description: 'Only update PRs that are in the specified state. Accepts "all", "draft", and "ready_for_review" (default)'
     required: false
@@ -33,12 +40,19 @@ inputs:
   update-requires-labels:
     description: 'Only update PRs that have one of the specified labels (comma-separated list of labels)'
     required: false
+    default: ''
   update-excluded-labels:
     description: 'Do not update PRs that have one of the specified labels. Takes precedence over update-required-labels (comma-separated list of labels)'
     required: false
+    default: ''
   update-excluded-authors:
     description: 'Do not update PRs that were opened by the specified authors (comma-separated list of usernames. If the author is an app, it must be in the format "app/<login>")'
     required: false
+    default: ''
+  dry-run:
+    description: 'Do not perform any actions, only log what would be done'
+    required: false
+    default: 'false'
 outputs:
   updated-prs:
     description: 'The list of PRs numbers that were updated (comma-separated list)'
