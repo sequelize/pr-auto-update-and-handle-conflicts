@@ -102,6 +102,7 @@ const conflictedPrs: number[] = [];
 
 switch (process.env.GITHUB_EVENT_NAME) {
   case 'push':
+  case 'workflow_dispatch':
     await processPushEvent();
     break;
 
@@ -112,7 +113,7 @@ switch (process.env.GITHUB_EVENT_NAME) {
 
   default:
     throw new Error(
-      `Event ${process.env.GITHUB_EVENT_NAME} is not supported. Only push, pull_request, and pull_request_target are supported.`,
+      `Event ${process.env.GITHUB_EVENT_NAME} is not supported. Only push, workflow_dispatch, pull_request, and pull_request_target are supported.`,
     );
 }
 

@@ -1,15 +1,11 @@
 name: Test action
 on:
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to run the action on'
-        required: true
-        default: 'main'
 jobs:
   autoupdate:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v2
       - name: Test Local Action
         id: test-action
         uses: ./
