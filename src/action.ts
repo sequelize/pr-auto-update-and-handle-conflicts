@@ -139,12 +139,6 @@ async function processPushEvent() {
     owner: repository.owner.name ?? repository.owner.login,
   } as const;
 
-  /**
-   * Conflict state is not computed instantaneously.
-   * This gives GitHub 10 seconds to compute it.
-   */
-  await setTimeout(10_000);
-
   const search = `repo:${repositoryId.owner}/${repositoryId.repo} is:open is:pr base:${targetBranch}`;
   for await (const pullRequest of iteratePullRequests({ search })) {
     console.info(`Handling PRs ${pullRequest.map(pr => pr.number).join(', ')}`);
@@ -165,16 +159,6 @@ async function processPullRequestEvent() {
     repo: repository.name,
     owner: repository.owner.name ?? repository.owner.login,
   } as const;
-
-  if (action === 'opened' || action === 'synchronize') {
-    /**
-     * These actions modify the commit history of the PR, which recomputes the conflict state.
-     *
-     * The conflict state is not computed instantaneously.
-     * This gives GitHub 5 seconds to compute it.
-     */
-    await setTimeout(5000);
-  }
 
   const pullRequest = await getPullRequest({ ...repositoryId, number });
 
@@ -201,7 +185,7 @@ async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest) {
     case 'UNKNOWN': {
       console.info(`[PR ${pullRequest.number}] Conflict state is not yet known. Retrying.`);
       // Conflicting state has not been computed yet. Try again in one second
-      await setTimeout(1000);
+      await setTimeout(5000);
 
       const updatedPr = await getPullRequest({ ...repositoryId, number: pullRequest.number });
       await processPr(repositoryId, updatedPr);
