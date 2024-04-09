@@ -32,6 +32,8 @@ function getEnumInput<T extends string>(name: string, values: readonly T[]): T {
 
 const READY_STATES = ['all', 'draft', 'ready_for_review'] as const;
 
+const dryRun = core.getBooleanInput('dry-run');
+
 const conflictLabel = core.getInput('conflict-label');
 const conflictMarksAsDraft = core.getBooleanInput('conflict-marks-as-draft');
 const conflictRequiresReadyState = getEnumInput('conflict-requires-ready-state', READY_STATES);
@@ -244,11 +246,13 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   console.info(`[${pullRequest.number}] Updating branch.`);
 
-  // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
-  return userBot.rest.pulls.updateBranch({
-    ...repositoryId,
-    pull_number: pullRequest.number,
-  });
+  if (!dryRun) {
+    // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
+    return userBot.rest.pulls.updateBranch({
+      ...repositoryId,
+      pull_number: pullRequest.number,
+    });
+  }
 }
 
 interface CompareBranchResponse {
@@ -302,24 +306,30 @@ async function handleConflict(repositoryId: RepositoryId, pullRequest: PullReque
   const promises: Array<Promise<any>> = [];
   if (conflictLabel && !pullRequest.labels.nodes.some(label => label.name === conflictLabel)) {
     console.info(`[PR ${pullRequest.number}] Adding conflict label.`);
-    promises.push(
-      githubBot.rest.issues.addLabels({
-        ...repositoryId,
-        issue_number: pullRequest.number,
-        labels: [conflictLabel],
-      }),
-    );
+
+    if (!dryRun) {
+      promises.push(
+        githubBot.rest.issues.addLabels({
+          ...repositoryId,
+          issue_number: pullRequest.number,
+          labels: [conflictLabel],
+        }),
+      );
+    }
   }
 
   if (conflictMarksAsDraft) {
     console.info(`[PR ${pullRequest.number}] Marking as draft due to conflicts.`);
-    promises.push(
-      githubBot.rest.pulls.update({
-        ...repositoryId,
-        pull_number: pullRequest.number,
-        draft: true,
-      }),
-    );
+
+    if (!dryRun) {
+      promises.push(
+        githubBot.rest.pulls.update({
+          ...repositoryId,
+          pull_number: pullRequest.number,
+          draft: true,
+        }),
+      );
+    }
   }
 
   await Promise.all(promises);
@@ -342,11 +352,13 @@ async function removeConflictLabel(
   }
 
   console.info(`[PR ${pullRequest.number}] No conflict, removing conflict label.`);
-  await githubBot.rest.issues.removeLabel({
-    ...repositoryId,
-    issue_number: pullRequest.number,
-    name: conflictLabel,
-  });
+  if (!dryRun) {
+    await githubBot.rest.issues.removeLabel({
+      ...repositoryId,
+      issue_number: pullRequest.number,
+      name: conflictLabel,
+    });
+  }
 }
 
 interface GetPrResponse {

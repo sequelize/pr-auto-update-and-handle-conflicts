@@ -1,0 +1,21 @@
+name: Test action
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run the action on'
+        required: true
+        default: 'main'
+jobs:
+  autoupdate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ../../action.yml
+        with:
+          dry-run: true
+          conflict-label: 'conflicted'
+          conflict-requires-labels: 'test-pr'
+          update-pr-branches: true
+          update-requires-labels: 'test-pr'
+        env:
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
