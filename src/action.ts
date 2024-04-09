@@ -39,6 +39,7 @@ const conflictRequiresLabels = getCommaSeparatedInput('conflict-requires-labels'
 const conflictExcludedLabels = getCommaSeparatedInput('conflict-excluded-labels');
 const conflictExcludedAuthors = getCommaSeparatedInput('conflict-excluded-authors');
 
+const updatePrBranches = core.getBooleanInput('update-pr-branches');
 const updateRequiresAutoMerge = core.getBooleanInput('update-requires-auto-merge');
 const updateRequiresReadyState = getEnumInput('update-requires-ready-state', READY_STATES);
 const updateRequiresLabels = getCommaSeparatedInput('update-requires-labels');
@@ -210,6 +211,10 @@ function prHasAnyLabel(pullRequest: PullRequest, labels: string[]) {
 }
 
 async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullRequest) {
+  if (!updatePrBranches) {
+    return;
+  }
+
   if (updateRequiresAutoMerge && !pullRequest.autoMergeRequest) {
     return;
   }

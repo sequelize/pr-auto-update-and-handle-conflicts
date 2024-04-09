@@ -20,6 +20,9 @@ inputs:
   conflict-excluded-authors:
     description: 'Do not process conflicts on PRs that were opened by the specified authors (comma-separated list of usernames. If the author is an app, it must be in the format "app/<login>")'
     required: false
+  update-pr-branches:
+    description: 'Automatically update PR branches with the latest changes from the target branch'
+    required: false
   update-requires-auto-merge:
     description: 'Only update PRs that have auto-merge enabled'
     required: false

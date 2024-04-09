@@ -50,6 +50,7 @@ jobs:
           conflict-label: 'conflicted'
           conflict-requires-ready-state: 'ready_for_review'
           conflict-excluded-authors: 'bot/renovate'
+          update-pr-branches: true
           update-requires-auto-merge: true
           update-requires-ready-state: 'ready_for_review'
           update-excluded-authors: 'bot/renovate'
