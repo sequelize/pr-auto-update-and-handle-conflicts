@@ -60,7 +60,7 @@ outputs:
     description: 'The list of PRs numbers that have merge conflicts (comma-separated list)'
 runs:
   using: 'node20'
-  main: 'lib/index.js'
+  main: 'lib/action.js'
 branding:
   color: 'purple'
   icon: 'git-merge'
