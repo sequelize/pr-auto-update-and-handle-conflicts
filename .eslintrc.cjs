@@ -9,5 +9,5 @@ module.exports = {
     '@ephys/eslint-config-typescript/node',
     '@ephys/eslint-config-typescript/commonjs',
   ],
-  ignorePatterns: ['/lib'],
+  ignorePatterns: ['/lib', '/.yarn'],
 };
