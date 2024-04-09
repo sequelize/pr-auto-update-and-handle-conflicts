@@ -19,8 +19,10 @@ jobs:
           dry-run: true
           conflict-label: 'conflicted'
           conflict-requires-labels: 'test-pr'
+          conflict-requires-ready-state: 'all'
           update-pr-branches: true
           update-requires-labels: 'test-pr'
+          update-requires-ready-state: 'all'
         env:
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
       - name: Print Output

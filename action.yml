@@ -12,7 +12,7 @@ inputs:
   conflict-requires-ready-state:
     description: 'Only process conflicts on PRs that are in the specified state. Accepts "all", "draft", and "ready_for_review" (default)'
     required: false
-    default: 'all'
+    default: 'ready_for_review'
   conflict-requires-labels:
     description: 'Only process conflicts on PRs that have one of the specified labels (comma-separated list of labels)'
     required: false
