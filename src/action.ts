@@ -18,7 +18,8 @@ function getCommaSeparatedInput(name: string) {
   return core
     .getInput(name)
     .split(',')
-    .map(label => label.trim());
+    .map(label => label.trim())
+    .filter(value => value.length > 0);
 }
 
 function getEnumInput<T extends string>(name: string, values: readonly T[]): T {
@@ -150,7 +151,7 @@ async function processPushEvent() {
 async function processPullRequestEvent() {
   isString.assert(process.env.GITHUB_EVENT_PATH);
 
-  const { action, number, repository } = JSON.parse(
+  const { number, repository } = JSON.parse(
     // @ts-expect-error -- JSON.parse accepts Buffers
     await fs.readFile(process.env.GITHUB_EVENT_PATH),
   ) as unknown as PullRequestEvent;
@@ -205,14 +206,14 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   }
 
   if (updateRequiresAutoMerge && !pullRequest.autoMergeRequest) {
-    console.info(`[${pullRequest.number}] Auto-merge is not enabled, skipping update.`);
+    console.info(`[PR ${pullRequest.number}] Auto-merge is not enabled, skipping update.`);
 
     return;
   }
 
   if (updateRequiresLabels.length > 0 && !prHasAnyLabel(pullRequest, updateRequiresLabels)) {
     console.info(
-      `[${pullRequest.number}] Does not any of the labels (${updateRequiresLabels}), skipping update.`,
+      `[PR ${pullRequest.number}] Does not have any of the required labels (${updateRequiresLabels}), skipping update.`,
     );
 
     return;
@@ -220,20 +221,20 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   if (updateExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, updateExcludedLabels)) {
     console.info(
-      `[${pullRequest.number}] Has one of the excluded (${updateExcludedLabels}), skipping update.`,
+      `[PR ${pullRequest.number}] Has one of the excluded (${updateExcludedLabels}), skipping update.`,
     );
 
     return;
   }
 
   if (updateExcludedAuthors.includes(getUserIdentity(pullRequest.author))) {
-    console.info(`[${pullRequest.number}] Was created by an excluded author, skipping update.`);
+    console.info(`[PR ${pullRequest.number}] Was created by an excluded author, skipping update.`);
 
     return;
   }
 
   if (!prMatchesReadyState(pullRequest, updateRequiresReadyState)) {
-    console.info(`[${pullRequest.number}] Not in the expected ready state, skipping update.`);
+    console.info(`[PR ${pullRequest.number}] Not in the expected ready state, skipping update.`);
 
     return;
   }
@@ -245,7 +246,7 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   updatedPrs.push(pullRequest.number);
 
-  console.info(`[${pullRequest.number}] ✅ Updating branch.`);
+  console.info(`[PR ${pullRequest.number}] ✅ Updating branch.`);
 
   if (!dryRun) {
     // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
@@ -462,7 +463,7 @@ function prMatchesReadyState(pullRequest: PullRequest, readyState: (typeof READY
 function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
   if (!prMatchesReadyState(pullRequest, conflictRequiresReadyState)) {
     console.info(
-      `[${pullRequest.number}] Not in the expected ready state, skipping conflict handling.`,
+      `[PR ${pullRequest.number}] Not in the expected ready state, skipping conflict handling.`,
     );
 
     return false;
@@ -470,7 +471,7 @@ function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
 
   if (conflictRequiresLabels.length > 0 && !prHasAnyLabel(pullRequest, conflictRequiresLabels)) {
     console.info(
-      `[${pullRequest.number}] Does not any of the labels (${conflictRequiresLabels}), skipping conflict handling.`,
+      `[PR ${pullRequest.number}] Does not have any of the required labels (${conflictRequiresLabels}), skipping conflict handling.`,
     );
 
     return false;
@@ -478,7 +479,7 @@ function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
 
   if (conflictExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, conflictExcludedLabels)) {
     console.info(
-      `[${pullRequest.number}] Has one of the excluded (${conflictExcludedLabels}), skipping conflict handling.`,
+      `[PR ${pullRequest.number}] Has one of the excluded (${conflictExcludedLabels}), skipping conflict handling.`,
     );
 
     return false;
@@ -486,7 +487,7 @@ function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
 
   if (conflictExcludedAuthors.includes(getUserIdentity(pullRequest.author))) {
     console.info(
-      `[${pullRequest.number}] Was created by an excluded author, skipping conflict handling.`,
+      `[PR ${pullRequest.number}] Was created by an excluded author, skipping conflict handling.`,
     );
 
     return false;
