@@ -46,6 +46,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: sequelize/pr-auto-update-and-conflict-notify@v1
+        with:
+          conflict-label: 'conflicted'
+          conflict-requires-ready-state: 'ready_for_review'
+          conflict-excluded-authors: 'bot/renovate'
+          update-requires-auto-merge: true
+          update-requires-ready-state: 'ready_for_review'
+          update-excluded-authors: 'bot/renovate'
+          update-excluded-labels: 'no-autoupdate'
         env:
           # The GITHUB_TOKEN will handle operations that the GitHub Bot can perform,
           # such as searching the repository, adding/removing labels, and drafting PRs.
