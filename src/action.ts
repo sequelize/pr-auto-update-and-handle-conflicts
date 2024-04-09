@@ -219,22 +219,36 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   }
 
   if (updateRequiresAutoMerge && !pullRequest.autoMergeRequest) {
+    console.info(`[${pullRequest.number}] Auto-merge is not enabled, skipping update.`);
+
     return;
   }
 
   if (updateRequiresLabels.length > 0 && !prHasAnyLabel(pullRequest, updateRequiresLabels)) {
+    console.info(
+      `[${pullRequest.number}] Does not any of the labels (${updateRequiresLabels}), skipping update.`,
+    );
+
     return;
   }
 
-  if (updateExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, updateRequiresLabels)) {
+  if (updateExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, updateExcludedLabels)) {
+    console.info(
+      `[${pullRequest.number}] Has one of the excluded (${updateExcludedLabels}), skipping update.`,
+    );
+
     return;
   }
 
   if (updateExcludedAuthors.includes(getUserIdentity(pullRequest.author))) {
+    console.info(`[${pullRequest.number}] Was created by an excluded author, skipping update.`);
+
     return;
   }
 
   if (!prMatchesReadyState(pullRequest, updateRequiresReadyState)) {
+    console.info(`[${pullRequest.number}] Not in the expected ready state, skipping update.`);
+
     return;
   }
 
@@ -245,7 +259,7 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   updatedPrs.push(pullRequest.number);
 
-  console.info(`[${pullRequest.number}] Updating branch.`);
+  console.info(`[${pullRequest.number}] ✅ Updating branch.`);
 
   if (!dryRun) {
     // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
@@ -306,7 +320,7 @@ async function handleConflict(repositoryId: RepositoryId, pullRequest: PullReque
 
   const promises: Array<Promise<any>> = [];
   if (conflictLabel && !pullRequest.labels.nodes.some(label => label.name === conflictLabel)) {
-    console.info(`[PR ${pullRequest.number}] Adding conflict label.`);
+    console.info(`[PR ${pullRequest.number}] ✅ Adding conflict label.`);
 
     if (!dryRun) {
       promises.push(
@@ -320,7 +334,7 @@ async function handleConflict(repositoryId: RepositoryId, pullRequest: PullReque
   }
 
   if (conflictMarksAsDraft) {
-    console.info(`[PR ${pullRequest.number}] Marking as draft due to conflicts.`);
+    console.info(`[PR ${pullRequest.number}] ✅ Marking as draft due to conflicts.`);
 
     if (!dryRun) {
       promises.push(
@@ -344,15 +358,15 @@ async function removeConflictLabel(
     return;
   }
 
-  if (!isConflictManagementEnabledForPr(pullRequest)) {
-    return;
-  }
-
   if (!pullRequest.labels.nodes.some(label => label.name === conflictLabel)) {
     return;
   }
 
-  console.info(`[PR ${pullRequest.number}] No conflict, removing conflict label.`);
+  if (!isConflictManagementEnabledForPr(pullRequest)) {
+    return;
+  }
+
+  console.info(`[PR ${pullRequest.number}] ✅ No conflict, removing conflict label.`);
   if (!dryRun) {
     await githubBot.rest.issues.removeLabel({
       ...repositoryId,
@@ -463,18 +477,34 @@ function prMatchesReadyState(pullRequest: PullRequest, readyState: (typeof READY
 
 function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
   if (!prMatchesReadyState(pullRequest, conflictRequiresReadyState)) {
+    console.info(
+      `[${pullRequest.number}] Not in the expected ready state, skipping conflict handling.`,
+    );
+
     return false;
   }
 
   if (conflictRequiresLabels.length > 0 && !prHasAnyLabel(pullRequest, conflictRequiresLabels)) {
+    console.info(
+      `[${pullRequest.number}] Does not any of the labels (${conflictRequiresLabels}), skipping conflict handling.`,
+    );
+
     return false;
   }
 
   if (conflictExcludedLabels.length > 0 && prHasAnyLabel(pullRequest, conflictExcludedLabels)) {
+    console.info(
+      `[${pullRequest.number}] Has one of the excluded (${conflictExcludedLabels}), skipping conflict handling.`,
+    );
+
     return false;
   }
 
   if (conflictExcludedAuthors.includes(getUserIdentity(pullRequest.author))) {
+    console.info(
+      `[${pullRequest.number}] Was created by an excluded author, skipping conflict handling.`,
+    );
+
     return false;
   }
 
