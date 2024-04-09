@@ -1,5 +1,5 @@
 name: 'Auto-update PR & Notify Conflicts'
-description: 'A GitHub Action to auto-update PRs based on criteria and notify about merge conflicts'
+description: 'A GitHub Action to auto-update PRs based on criteria and handle merge conflicts'
 inputs:
   conflict-label:
     description: 'Label to add to all PRs with merge conflicts'

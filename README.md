@@ -1,4 +1,4 @@
-# PR auto-update and conflict notify
+# PR auto-update and conflict handling
 
 This action is used to automatically update a PR with the latest changes from the base branch
 and label or draft it PR if there are any conflicts.
@@ -45,7 +45,7 @@ jobs:
   autoupdate:
     runs-on: ubuntu-latest
     steps:
-      - uses: sequelize/pr-auto-update-and-conflict-notify@v1
+      - uses: sequelize/pr-auto-update-and-handle-conflicts@v1
         with:
           conflict-label: 'conflicted'
           conflict-requires-ready-state: 'ready_for_review'
