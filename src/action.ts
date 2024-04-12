@@ -9,12 +9,32 @@ import { setTimeout } from 'node:timers/promises';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
+/**
+ * The default token is used for any action that does not require special permissions
+ * that the GITHUB_TOKEN cannot provide, and for any action that does not require
+ * triggering subsequent workflows.
+ */
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
 
 /**
- * Execute actions as an actual user. This is necessary to update the PR branch.
+ * Used to update branches on pull requests that are owned by the repository.
+ *
+ * Can be any pat other than the GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger
+ * subsequent workflows.
  */
-const userBot = process.env.PAT ? github.getOctokit(process.env.PAT) : githubBot;
+const updateBranchBot = process.env.UPDATE_BRANCH_PAT
+  ? github.getOctokit(process.env.UPDATE_BRANCH_PAT)
+  : githubBot;
+
+/**
+ * Used to update branches on pull requests that are not owned by the repository.
+ *
+ * We recommend using a user PAT for this, as:
+ * - Using the GITHUB_TOKEN will not trigger subsequent workflows.
+ * - Using a bot PAT will cause an error if the branch update includes a workflow file.
+ */
+const updateForkPat = process.env.UPDATE_FORK_PAT || process.env.GITHUB_TOKEN;
+const updateForkUsername = process.env.UPDATE_FORK_USERNAME || 'x-access-token';
 
 function getCommaSeparatedInput(name: string) {
   return core
@@ -295,7 +315,7 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   // even if the "allow maintainers to modify" setting is enabled on the PR.
   if (!isForkPr(pullRequest)) {
     // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
-    return userBot.rest.pulls.updateBranch({
+    return updateBranchBot.rest.pulls.updateBranch({
       ...repositoryId,
       pull_number: pullRequest.number,
     });
@@ -309,8 +329,8 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   const targetDirectoryName = `pr-${pullRequest.number}`;
   const targetDirectoryPath = path.join(process.cwd(), targetDirectoryName);
 
-  const forkRepositoryUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${pullRequest.headRepository.nameWithOwner}.git`;
-  const parentRepositoryUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${pullRequest.baseRepository.nameWithOwner}.git`;
+  const forkRepositoryUrl = `https://${updateForkUsername}:${updateForkPat}@github.com/${pullRequest.headRepository.nameWithOwner}.git`;
+  const parentRepositoryUrl = `https://${updateForkUsername}:${updateForkPat}@github.com/${pullRequest.baseRepository.nameWithOwner}.git`;
 
   // clone fork repository in the correct branch
   console.log(
