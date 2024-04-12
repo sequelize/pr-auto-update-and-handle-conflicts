@@ -13,14 +13,6 @@ childProcess.execFileSync('git', ['config', '--global', 'push.default', 'upstrea
   stdio: 'inherit',
 });
 
-childProcess.execFileSync('gh', ['auth', 'login', '--with-token'], {
-  stdio: 'inherit',
-  env: {
-    ...process.env,
-    GH_TOKEN: process.env.GITHUB_TOKEN,
-  },
-});
-
 childProcess.execFileSync('gh', ['auth', 'setup-git'], {
   stdio: 'inherit',
 });
