@@ -2,17 +2,46 @@ import core from '@actions/core';
 import github from '@actions/github';
 import type { PullRequestEvent, PushEvent } from '@octokit/webhooks-types';
 import { isString } from '@sequelize/utils';
+import childProcess from 'node:child_process';
 import fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
+import { promisify } from 'node:util';
+
+const execFile = promisify(childProcess.execFile);
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
+/**
+ * The default token is used for any action that does not require special permissions
+ * that the GITHUB_TOKEN cannot provide, and for any action that does not require
+ * triggering subsequent workflows.
+ */
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
 
 /**
- * Execute actions as an actual user. This is necessary to update the PR branch.
+ * Used to update branches on pull requests that are owned by the repository.
+ *
+ * Can be any pat other than the GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger
+ * subsequent workflows.
  */
-const userBot = process.env.PAT ? github.getOctokit(process.env.PAT) : githubBot;
+const updateBranchBot = process.env.UPDATE_BRANCH_PAT
+  ? github.getOctokit(process.env.UPDATE_BRANCH_PAT)
+  : githubBot;
+
+/**
+ * Used to update branches on pull requests that are not owned by the repository.
+ *
+ * We recommend using a user PAT for this, as:
+ * - Using the GITHUB_TOKEN will not trigger subsequent workflows.
+ * - Using a bot PAT will cause an error if the branch update includes a workflow file.
+ *
+ * This will need the following permissions:
+ * - contents (read & write)
+ * - workflows (read & write)
+ */
+const updateForkPat = process.env.UPDATE_FORK_PAT || process.env.GITHUB_TOKEN;
+const updateForkUsername = process.env.UPDATE_FORK_USERNAME || 'x-access-token';
 
 function getCommaSeparatedInput(name: string) {
   return core
@@ -48,6 +77,11 @@ const updateRequiresReadyState = getEnumInput('update-requires-ready-state', REA
 const updateRequiresLabels = getCommaSeparatedInput('update-requires-labels');
 const updateExcludedLabels = getCommaSeparatedInput('update-excluded-labels');
 const updateExcludedAuthors = getCommaSeparatedInput('update-excluded-authors');
+const updateRequiresSource = getEnumInput('update-requires-source', [
+  'all',
+  'fork',
+  'branch',
+] as const);
 
 interface RepositoryId {
   owner: string;
@@ -63,7 +97,13 @@ interface PullRequest {
     enabledAt: string;
   };
   baseRef: { name: string };
+  baseRepository: {
+    nameWithOwner: string;
+  };
   headRef: { name: string };
+  headRepository: {
+    nameWithOwner: string;
+  };
   isDraft: boolean;
   labels: {
     nodes: [
@@ -72,8 +112,10 @@ interface PullRequest {
       },
     ];
   };
+  maintainerCanModify: boolean;
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
   number: number;
+  viewerCanUpdateBranch: boolean;
 }
 
 const pullRequestFragment = `
@@ -95,6 +137,14 @@ fragment PR on PullRequest {
   }
   baseRef { name }
   headRef { name }
+  headRepository {
+    nameWithOwner
+  }
+  baseRepository {
+    nameWithOwner
+  }
+  maintainerCanModify
+  viewerCanUpdateBranch
 }
 `;
 
@@ -239,59 +289,113 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     return;
   }
 
-  const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
-  if (!isBehind) {
+  if (!prMatchesSource(pullRequest, updateRequiresSource)) {
+    console.info(`[PR ${pullRequest.number}] Not from the expected source, skipping update.`);
+
+    return;
+  }
+
+  if (isForkPr(pullRequest) && !pullRequest.maintainerCanModify) {
+    console.info(
+      `[PR ${pullRequest.number}] Fork PR refuses updates from maintainers, skipping update.`,
+    );
+
+    return;
+  }
+
+  // used to detect if branch is outdated. If the branch is up-to-date, this will be false.
+  if (!pullRequest.viewerCanUpdateBranch) {
+    console.info(`[PR ${pullRequest.number}] Viewer cannot update branch, skipping update.`);
+
     return;
   }
 
   updatedPrs.push(pullRequest.number);
 
-  console.info(`[PR ${pullRequest.number}] ✅ Updating branch.`);
+  if (dryRun) {
+    return;
+  }
 
-  if (!dryRun) {
+  // The "update-branch" endpoint does not allow modifying pull requests from repositories we do not own,
+  // even if the "allow maintainers to modify" setting is enabled on the PR.
+  if (!isForkPr(pullRequest)) {
+    console.info(`[PR ${pullRequest.number}] ✅ Updating branch via API.`);
+
     // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
-    return userBot.rest.pulls.updateBranch({
+    return updateBranchBot.rest.pulls.updateBranch({
       ...repositoryId,
       pull_number: pullRequest.number,
     });
   }
-}
 
-interface CompareBranchResponse {
-  repository: {
-    ref: {
-      compare: {
-        behindBy: number;
-      };
-    };
-  };
-}
+  console.info(`[PR ${pullRequest.number}] ✅ Updating fork via git.`);
 
-async function checkPrIsBehindTarget(
-  repositoryId: RepositoryId,
-  pullRequest: PullRequest,
-): Promise<boolean> {
-  const response: CompareBranchResponse = await githubBot.graphql(
-    `
-      query ($owner: String!, $repository:String!, $baseRef:String!, $headRef:String!) {
-        repository(owner:$owner, name: $repository) {
-          ref(qualifiedName: $baseRef) {
-            compare(headRef: $headRef) {
-              behindBy
-            }
-          }
-        }
-      }
-    `,
-    {
-      owner: repositoryId.owner,
-      repository: repositoryId.repo,
-      baseRef: pullRequest.baseRef.name,
-      headRef: pullRequest.headRef.name,
-    },
-  );
+  // For fork PRs, we use git directly instead:
+  // - Clone the repository in a new directory
+  // - Merge the base branch into the PR branch
+  // - Push the changes to the PR branch
 
-  return response.repository.ref.compare.behindBy > 0;
+  const targetDirectoryName = `pr-${pullRequest.number}`;
+  const targetDirectoryPath = path.join(process.cwd(), targetDirectoryName);
+
+  const forkRepositoryUrl = `https://${updateForkUsername}:${updateForkPat}@github.com/${pullRequest.headRepository.nameWithOwner}.git`;
+  const parentRepositoryUrl = `https://${updateForkUsername}:${updateForkPat}@github.com/${pullRequest.baseRepository.nameWithOwner}.git`;
+
+  // clone fork repository in the correct branch
+  {
+    const { stdout, stderr } = await execFile('git', [
+      'clone',
+      '--quiet',
+      forkRepositoryUrl,
+      targetDirectoryName,
+      '--branch',
+      pullRequest.headRef.name,
+    ]);
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
+
+  // add parent repository as remote
+  {
+    const { stdout, stderr } = await execFile(
+      'git',
+      ['remote', 'add', 'parent', parentRepositoryUrl],
+      {
+        cwd: targetDirectoryPath,
+      },
+    );
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
+
+  // merge parent branch in local branch
+  {
+    const { stdout, stderr } = await execFile(
+      'git',
+      ['pull', '--quiet', 'parent', pullRequest.baseRef.name, '--no-edit', '--no-rebase'],
+      {
+        cwd: targetDirectoryPath,
+      },
+    );
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
+
+  {
+    const { stdout, stderr } = await execFile(
+      'git',
+      ['push', '--quiet', 'origin', pullRequest.headRef.name],
+      {
+        cwd: targetDirectoryPath,
+      },
+    );
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
 }
 
 async function handleConflict(repositoryId: RepositoryId, pullRequest: PullRequest): Promise<void> {
@@ -460,6 +564,19 @@ function prMatchesReadyState(pullRequest: PullRequest, readyState: (typeof READY
   }
 }
 
+function prMatchesSource(pullRequest: PullRequest, source: typeof updateRequiresSource) {
+  switch (source) {
+    case 'all':
+      return true;
+
+    case 'fork':
+      return isForkPr(pullRequest);
+
+    case 'branch':
+      return !isForkPr(pullRequest);
+  }
+}
+
 function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
   if (!prMatchesReadyState(pullRequest, conflictRequiresReadyState)) {
     console.info(
@@ -494,4 +611,8 @@ function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
   }
 
   return true;
+}
+
+function isForkPr(pullRequest: PullRequest) {
+  return pullRequest.baseRepository.nameWithOwner !== pullRequest.headRepository.nameWithOwner;
 }

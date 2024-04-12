@@ -49,6 +49,10 @@ inputs:
     description: 'Do not update PRs that were opened by the specified authors (comma-separated list of usernames. If the author is an app, it must be in the format "app/<login>")'
     required: false
     default: ''
+  update-requires-source:
+    description: 'Only update PRs that are either forks or branches from the same repository. Accepts "all" (default), "forks", and "branch"'
+    required: false
+    default: 'all'
   dry-run:
     description: 'Do not perform any actions, only log what would be done'
     required: false
