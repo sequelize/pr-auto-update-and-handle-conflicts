@@ -2,10 +2,13 @@ import core from '@actions/core';
 import github from '@actions/github';
 import type { PullRequestEvent, PushEvent } from '@octokit/webhooks-types';
 import { isString } from '@sequelize/utils';
-import { execFileSync } from 'node:child_process';
+import childProcess from 'node:child_process';
 import fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
+import { promisify } from 'node:util';
+
+const execFile = promisify(childProcess.execFile);
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
@@ -32,6 +35,10 @@ const updateBranchBot = process.env.UPDATE_BRANCH_PAT
  * We recommend using a user PAT for this, as:
  * - Using the GITHUB_TOKEN will not trigger subsequent workflows.
  * - Using a bot PAT will cause an error if the branch update includes a workflow file.
+ *
+ * This will need the following permissions:
+ * - contents (read & write)
+ * - workflows (read & write)
  */
 const updateForkPat = process.env.UPDATE_FORK_PAT || process.env.GITHUB_TOKEN;
 const updateForkUsername = process.env.UPDATE_FORK_USERNAME || 'x-access-token';
@@ -73,7 +80,7 @@ const updateExcludedAuthors = getCommaSeparatedInput('update-excluded-authors');
 const updateRequiresSource = getEnumInput('update-requires-source', [
   'all',
   'fork',
-  'branches',
+  'branch',
 ] as const);
 
 interface RepositoryId {
@@ -305,8 +312,6 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   updatedPrs.push(pullRequest.number);
 
-  console.info(`[PR ${pullRequest.number}] ✅ Updating branch.`);
-
   if (dryRun) {
     return;
   }
@@ -314,12 +319,16 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   // The "update-branch" endpoint does not allow modifying pull requests from repositories we do not own,
   // even if the "allow maintainers to modify" setting is enabled on the PR.
   if (!isForkPr(pullRequest)) {
+    console.info(`[PR ${pullRequest.number}] ✅ Updating branch via API.`);
+
     // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
     return updateBranchBot.rest.pulls.updateBranch({
       ...repositoryId,
       pull_number: pullRequest.number,
     });
   }
+
+  console.info(`[PR ${pullRequest.number}] ✅ Updating fork via git.`);
 
   // For fork PRs, we use git directly instead:
   // - Clone the repository in a new directory
@@ -333,36 +342,60 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   const parentRepositoryUrl = `https://${updateForkUsername}:${updateForkPat}@github.com/${pullRequest.baseRepository.nameWithOwner}.git`;
 
   // clone fork repository in the correct branch
-  console.log(
-    `git clone ${forkRepositoryUrl} ${targetDirectoryName} --branch ${pullRequest.headRef.name}`,
-  );
-  execFileSync(
-    'git',
-    ['clone', forkRepositoryUrl, targetDirectoryName, '--branch', pullRequest.headRef.name],
-    {
-      stdio: 'inherit',
-    },
-  );
+  {
+    const { stdout, stderr } = await execFile('git', [
+      'clone',
+      '--quiet',
+      forkRepositoryUrl,
+      targetDirectoryName,
+      '--branch',
+      pullRequest.headRef.name,
+    ]);
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
 
   // add parent repository as remote
-  console.log(`git remote add parent ${parentRepositoryUrl}`);
-  execFileSync('git', ['remote', 'add', 'parent', parentRepositoryUrl], {
-    cwd: targetDirectoryPath,
-    stdio: 'inherit',
-  });
+  {
+    const { stdout, stderr } = await execFile(
+      'git',
+      ['remote', 'add', 'parent', parentRepositoryUrl],
+      {
+        cwd: targetDirectoryPath,
+      },
+    );
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
 
   // merge parent branch in local branch
-  console.log(`git pull parent ${pullRequest.baseRef.name} --no-edit --no-rebase`);
-  execFileSync('git', ['pull', 'parent', pullRequest.baseRef.name, '--no-edit', '--no-rebase'], {
-    cwd: targetDirectoryPath,
-    stdio: 'inherit',
-  });
+  {
+    const { stdout, stderr } = await execFile(
+      'git',
+      ['pull', '--quiet', 'parent', pullRequest.baseRef.name, '--no-edit', '--no-rebase'],
+      {
+        cwd: targetDirectoryPath,
+      },
+    );
 
-  console.log(`git push origin ${pullRequest.headRef.name}`);
-  execFileSync('git', ['push', 'origin', pullRequest.headRef.name], {
-    cwd: targetDirectoryPath,
-    stdio: 'inherit',
-  });
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
+
+  {
+    const { stdout, stderr } = await execFile(
+      'git',
+      ['push', '--quiet', 'origin', pullRequest.headRef.name],
+      {
+        cwd: targetDirectoryPath,
+      },
+    );
+
+    stdout && console.info(`[PR ${pullRequest.number}] ${stdout}`);
+    stderr && console.error(`[PR ${pullRequest.number}] ${stderr}`);
+  }
 }
 
 async function handleConflict(repositoryId: RepositoryId, pullRequest: PullRequest): Promise<void> {
@@ -539,7 +572,7 @@ function prMatchesSource(pullRequest: PullRequest, source: typeof updateRequires
     case 'fork':
       return isForkPr(pullRequest);
 
-    case 'branches':
+    case 'branch':
       return !isForkPr(pullRequest);
   }
 }

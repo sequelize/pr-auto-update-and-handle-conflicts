@@ -50,7 +50,7 @@ inputs:
     required: false
     default: ''
   update-requires-source:
-    description: 'Only update PRs that are either forks or branches from the same repository. Accepts "all" (default), "forks", and "branches"'
+    description: 'Only update PRs that are either forks or branches from the same repository. Accepts "all" (default), "forks", and "branch"'
     required: false
     default: 'all'
   dry-run:
