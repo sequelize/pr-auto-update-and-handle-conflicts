@@ -9,6 +9,10 @@ import { setTimeout } from 'node:timers/promises';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
+childProcess.execFileSync('git', ['config', 'push.default', 'upstream'], {
+  stdio: 'inherit',
+});
+
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
 
 /**
