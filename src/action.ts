@@ -13,6 +13,18 @@ childProcess.execFileSync('git', ['config', '--global', 'push.default', 'upstrea
   stdio: 'inherit',
 });
 
+childProcess.execFileSync('gh', ['auth', 'login', '--with-token'], {
+  stdio: 'inherit',
+  env: {
+    ...process.env,
+    GH_TOKEN: process.env.GITHUB_TOKEN,
+  },
+});
+
+childProcess.execFileSync('gh', ['auth', 'setup-git'], {
+  stdio: 'inherit',
+});
+
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
 
 /**
@@ -320,6 +332,8 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   const targetDirectoryName = `pr-${pullRequest.number}`;
   const targetDirectoryPath = path.join(process.cwd(), targetDirectoryName);
 
+  // TODO - instead of using global envs, use `git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}`
+
   console.log('cloning repo in', targetDirectoryPath);
 
   // gh repo clone sequelize/sequelize
@@ -336,10 +350,6 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     ],
     {
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        GH_TOKEN: process.env.GITHUB_TOKEN,
-      },
     },
   );
 
@@ -348,10 +358,6 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   childProcess.execFileSync('gh', ['pr', 'checkout', String(pullRequest.number)], {
     cwd: targetDirectoryPath,
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      GH_TOKEN: process.env.GITHUB_TOKEN,
-    },
   });
 
   console.log('executing git merge');
