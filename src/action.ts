@@ -9,6 +9,14 @@ import { setTimeout } from 'node:timers/promises';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
+childProcess.execFileSync('git', ['config', '--global', 'push.default', 'upstream'], {
+  stdio: 'inherit',
+});
+
+childProcess.execFileSync('gh', ['auth', 'setup-git'], {
+  stdio: 'inherit',
+});
+
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
 
 /**
@@ -88,6 +96,7 @@ interface PullRequest {
   maintainerCanModify: boolean;
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
   number: number;
+  viewerCanUpdateBranch: boolean;
 }
 
 const pullRequestFragment = `
@@ -116,6 +125,7 @@ fragment PR on PullRequest {
     nameWithOwner
   }
   maintainerCanModify
+  viewerCanUpdateBranch
 }
 `;
 
@@ -274,12 +284,19 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     return;
   }
 
-  const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
-  if (!isBehind) {
-    console.info(`[PR ${pullRequest.number}] Is up to date.`);
+  // used to detect if branch is outdated. If the branch is up-to-date, this will be false.
+  if (!pullRequest.viewerCanUpdateBranch) {
+    console.info(`[PR ${pullRequest.number}] Viewer cannot update branch, skipping update.`);
 
     return;
   }
+
+  // const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
+  // if (!isBehind) {
+  //   console.info(`[PR ${pullRequest.number}] Is up to date.`);
+  //
+  //   return;
+  // }
 
   updatedPrs.push(pullRequest.number);
 
@@ -307,6 +324,8 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   const targetDirectoryName = `pr-${pullRequest.number}`;
   const targetDirectoryPath = path.join(process.cwd(), targetDirectoryName);
 
+  // TODO - instead of using global envs, use `git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}`
+
   console.log('cloning repo in', targetDirectoryPath);
 
   // gh repo clone sequelize/sequelize
@@ -323,10 +342,6 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     ],
     {
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        GH_TOKEN: process.env.GITHUB_TOKEN,
-      },
     },
   );
 
@@ -335,10 +350,6 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   childProcess.execFileSync('gh', ['pr', 'checkout', String(pullRequest.number)], {
     cwd: targetDirectoryPath,
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      GH_TOKEN: process.env.GITHUB_TOKEN,
-    },
   });
 
   console.log('executing git merge');
