@@ -276,6 +276,8 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
   if (!isBehind) {
+    console.info(`[PR ${pullRequest.number}] Is up to date.`);
+
     return;
   }
 
