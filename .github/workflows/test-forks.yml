@@ -30,6 +30,8 @@ jobs:
           update-requires-source: 'fork'
         env:
           GITHUB_TOKEN: '${{ steps.generate-token.outputs.token }}'
+          UPDATE_FORK_USERNAME: 'ephys'
+          UPDATE_FORK_PAT: '${{ secrets.UPDATE_BRANCH_PAT }}'
       - name: Print Output
         id: output
         run: |
