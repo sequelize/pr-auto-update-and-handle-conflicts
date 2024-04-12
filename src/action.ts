@@ -2,20 +2,12 @@ import core from '@actions/core';
 import github from '@actions/github';
 import type { PullRequestEvent, PushEvent } from '@octokit/webhooks-types';
 import { isString } from '@sequelize/utils';
-import childProcess from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
-
-childProcess.execFileSync('git', ['config', '--global', 'push.default', 'upstream'], {
-  stdio: 'inherit',
-});
-
-childProcess.execFileSync('gh', ['auth', 'setup-git'], {
-  stdio: 'inherit',
-});
 
 const githubBot = github.getOctokit(process.env.GITHUB_TOKEN);
 
@@ -291,13 +283,6 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     return;
   }
 
-  // const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
-  // if (!isBehind) {
-  //   console.info(`[PR ${pullRequest.number}] Is up to date.`);
-  //
-  //   return;
-  // }
-
   updatedPrs.push(pullRequest.number);
 
   console.info(`[PR ${pullRequest.number}] ✅ Updating branch.`);
@@ -324,84 +309,40 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   const targetDirectoryName = `pr-${pullRequest.number}`;
   const targetDirectoryPath = path.join(process.cwd(), targetDirectoryName);
 
-  // TODO - instead of using global envs, use `git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}`
+  const forkRepositoryUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${pullRequest.headRepository.nameWithOwner}.git`;
+  const parentRepositoryUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${pullRequest.baseRepository.nameWithOwner}.git`;
 
-  console.log('cloning repo in', targetDirectoryPath);
-
-  // gh repo clone sequelize/sequelize
-  childProcess.execFileSync(
-    'gh',
-    [
-      'repo',
-      'clone',
-      pullRequest.baseRepository.nameWithOwner,
-      targetDirectoryName,
-      '--',
-      '--branch',
-      pullRequest.baseRef.name,
-    ],
+  // clone fork repository in the correct branch
+  console.log(
+    `git clone ${forkRepositoryUrl} ${targetDirectoryName} --branch ${pullRequest.headRef.name}`,
+  );
+  execFileSync(
+    'git',
+    ['clone', forkRepositoryUrl, targetDirectoryName, '--branch', pullRequest.headRef.name],
     {
       stdio: 'inherit',
     },
   );
 
-  console.log('checking out PR branch');
-
-  childProcess.execFileSync('gh', ['pr', 'checkout', String(pullRequest.number)], {
+  // add parent repository as remote
+  console.log(`git remote add parent ${parentRepositoryUrl}`);
+  execFileSync('git', ['remote', 'add', 'parent', parentRepositoryUrl], {
     cwd: targetDirectoryPath,
     stdio: 'inherit',
   });
 
-  console.log('executing git merge');
-
-  childProcess.execFileSync('git', ['merge', pullRequest.baseRef.name, '--no-edit'], {
+  // merge parent branch in local branch
+  console.log(`git merge parent/main --no-edit`);
+  execFileSync('git', ['merge', 'parent/main', '--no-edit'], {
     cwd: targetDirectoryPath,
     stdio: 'inherit',
   });
 
-  console.log('executing git push');
-
-  childProcess.execFileSync('git', ['push'], {
+  console.log(`git push origin ${pullRequest.headRef.name}`);
+  execFileSync('git', ['push', 'origin', pullRequest.headRef.name], {
     cwd: targetDirectoryPath,
     stdio: 'inherit',
   });
-}
-
-interface CompareBranchResponse {
-  repository: {
-    ref: {
-      compare: {
-        behindBy: number;
-      };
-    };
-  };
-}
-
-async function checkPrIsBehindTarget(
-  repositoryId: RepositoryId,
-  pullRequest: PullRequest,
-): Promise<boolean> {
-  const response: CompareBranchResponse = await githubBot.graphql(
-    `
-      query ($owner: String!, $repository:String!, $baseRef:String!, $headRef:String!) {
-        repository(owner:$owner, name: $repository) {
-          ref(qualifiedName: $baseRef) {
-            compare(headRef: $headRef) {
-              behindBy
-            }
-          }
-        }
-      }
-    `,
-    {
-      owner: repositoryId.owner,
-      repository: repositoryId.repo,
-      baseRef: pullRequest.baseRef.name,
-      headRef: pullRequest.headRef.name,
-    },
-  );
-
-  return response.repository.ref.compare.behindBy > 0;
 }
 
 async function handleConflict(repositoryId: RepositoryId, pullRequest: PullRequest): Promise<void> {
