@@ -88,6 +88,7 @@ interface PullRequest {
   maintainerCanModify: boolean;
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
   number: number;
+  viewerCanUpdateBranch: boolean;
 }
 
 const pullRequestFragment = `
@@ -116,6 +117,7 @@ fragment PR on PullRequest {
     nameWithOwner
   }
   maintainerCanModify
+  viewerCanUpdateBranch
 }
 `;
 
@@ -274,12 +276,19 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     return;
   }
 
-  const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
-  if (!isBehind) {
-    console.info(`[PR ${pullRequest.number}] Is up to date.`);
+  // used to detect if branch is outdated. If the branch is up-to-date, this will be false.
+  if (!pullRequest.viewerCanUpdateBranch) {
+    console.info(`[PR ${pullRequest.number}] Viewer cannot update branch, skipping update.`);
 
     return;
   }
+
+  // const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
+  // if (!isBehind) {
+  //   console.info(`[PR ${pullRequest.number}] Is up to date.`);
+  //
+  //   return;
+  // }
 
   updatedPrs.push(pullRequest.number);
 
