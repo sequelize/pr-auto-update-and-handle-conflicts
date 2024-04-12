@@ -9,7 +9,7 @@ import { setTimeout } from 'node:timers/promises';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
 
-childProcess.execFileSync('git', ['config', 'push.default', 'upstream'], {
+childProcess.execFileSync('git', ['config', '--global', 'push.default', 'upstream'], {
   stdio: 'inherit',
 });
 
