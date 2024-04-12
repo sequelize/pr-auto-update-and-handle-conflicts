@@ -332,8 +332,8 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   });
 
   // merge parent branch in local branch
-  console.log(`git merge parent/main --no-edit`);
-  execFileSync('git', ['merge', 'parent/main', '--no-edit'], {
+  console.log(`git pull parent ${pullRequest.baseRef.name} --no-edit --no-rebase`);
+  execFileSync('git', ['pull', 'parent', pullRequest.baseRef.name, '--no-edit', '--no-rebase'], {
     cwd: targetDirectoryPath,
     stdio: 'inherit',
   });
