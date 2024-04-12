@@ -2,7 +2,9 @@ import core from '@actions/core';
 import github from '@actions/github';
 import type { PullRequestEvent, PushEvent } from '@octokit/webhooks-types';
 import { isString } from '@sequelize/utils';
+import childProcess from 'node:child_process';
 import fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
 isString.assert(process.env.GITHUB_TOKEN, 'GITHUB_TOKEN env must be provided');
@@ -48,6 +50,11 @@ const updateRequiresReadyState = getEnumInput('update-requires-ready-state', REA
 const updateRequiresLabels = getCommaSeparatedInput('update-requires-labels');
 const updateExcludedLabels = getCommaSeparatedInput('update-excluded-labels');
 const updateExcludedAuthors = getCommaSeparatedInput('update-excluded-authors');
+const updateRequiresSource = getEnumInput('update-requires-source', [
+  'all',
+  'fork',
+  'branches',
+] as const);
 
 interface RepositoryId {
   owner: string;
@@ -63,7 +70,13 @@ interface PullRequest {
     enabledAt: string;
   };
   baseRef: { name: string };
+  baseRepository: {
+    nameWithOwner: string;
+  };
   headRef: { name: string };
+  headRepository: {
+    nameWithOwner: string;
+  };
   isDraft: boolean;
   labels: {
     nodes: [
@@ -72,6 +85,7 @@ interface PullRequest {
       },
     ];
   };
+  maintainerCanModify: boolean;
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
   number: number;
 }
@@ -95,6 +109,13 @@ fragment PR on PullRequest {
   }
   baseRef { name }
   headRef { name }
+  headRepository {
+    nameWithOwner
+  }
+  baseRepository {
+    nameWithOwner
+  }
+  maintainerCanModify
 }
 `;
 
@@ -239,6 +260,20 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
     return;
   }
 
+  if (!prMatchesSource(pullRequest, updateRequiresSource)) {
+    console.info(`[PR ${pullRequest.number}] Not from the expected source, skipping update.`);
+
+    return;
+  }
+
+  if (isForkPr(pullRequest) && !pullRequest.maintainerCanModify) {
+    console.info(
+      `[PR ${pullRequest.number}] Fork PR refuses updates from maintainers, skipping update.`,
+    );
+
+    return;
+  }
+
   const isBehind = await checkPrIsBehindTarget(repositoryId, pullRequest);
   if (!isBehind) {
     return;
@@ -248,13 +283,75 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
 
   console.info(`[PR ${pullRequest.number}] ✅ Updating branch.`);
 
-  if (!dryRun) {
+  if (dryRun) {
+    return;
+  }
+
+  // The "update-branch" endpoint does not allow modifying pull requests from repositories we do not own,
+  // even if the "allow maintainers to modify" setting is enabled on the PR.
+  if (!isForkPr(pullRequest)) {
     // This operation cannot be done with GITHUB_TOKEN, as the GITHUB_TOKEN does not trigger subsequent workflows.
     return userBot.rest.pulls.updateBranch({
       ...repositoryId,
       pull_number: pullRequest.number,
     });
   }
+
+  // For fork PRs, we use git directly instead:
+  // - Clone the repository in a new directory
+  // - Merge the base branch into the PR branch
+  // - Push the changes to the PR branch
+
+  const targetDirectoryName = `pr-${pullRequest.number}`;
+  const targetDirectoryPath = path.join(process.cwd(), targetDirectoryName);
+
+  console.log('cloning repo in', targetDirectoryPath);
+
+  // gh repo clone sequelize/sequelize
+  childProcess.execFileSync(
+    'gh',
+    [
+      'repo',
+      'clone',
+      pullRequest.baseRepository.nameWithOwner,
+      targetDirectoryName,
+      '--',
+      '--branch',
+      pullRequest.baseRef.name,
+    ],
+    {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        GH_TOKEN: process.env.GITHUB_TOKEN,
+      },
+    },
+  );
+
+  console.log('checking out PR branch');
+
+  childProcess.execFileSync('gh', ['pr', 'checkout', String(pullRequest.number)], {
+    cwd: targetDirectoryPath,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      GH_TOKEN: process.env.GITHUB_TOKEN,
+    },
+  });
+
+  console.log('executing git merge');
+
+  childProcess.execFileSync('git', ['merge', pullRequest.baseRef.name, '--no-edit'], {
+    cwd: targetDirectoryPath,
+    stdio: 'inherit',
+  });
+
+  console.log('executing git push');
+
+  childProcess.execFileSync('git', ['push'], {
+    cwd: targetDirectoryPath,
+    stdio: 'inherit',
+  });
 }
 
 interface CompareBranchResponse {
@@ -460,6 +557,19 @@ function prMatchesReadyState(pullRequest: PullRequest, readyState: (typeof READY
   }
 }
 
+function prMatchesSource(pullRequest: PullRequest, source: typeof updateRequiresSource) {
+  switch (source) {
+    case 'all':
+      return true;
+
+    case 'fork':
+      return isForkPr(pullRequest);
+
+    case 'branches':
+      return !isForkPr(pullRequest);
+  }
+}
+
 function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
   if (!prMatchesReadyState(pullRequest, conflictRequiresReadyState)) {
     console.info(
@@ -494,4 +604,8 @@ function isConflictManagementEnabledForPr(pullRequest: PullRequest) {
   }
 
   return true;
+}
+
+function isForkPr(pullRequest: PullRequest) {
+  return pullRequest.baseRepository.nameWithOwner !== pullRequest.headRepository.nameWithOwner;
 }
