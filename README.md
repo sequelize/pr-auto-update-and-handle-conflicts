@@ -45,6 +45,14 @@ jobs:
   autoupdate:
     runs-on: ubuntu-latest
     steps:
+      # This step is only necessary if you want to update branches from forks,
+      # as it uses a completely different process (git) than updating branches from the same repository (api call).
+      - name: Configure git
+        run: |
+          # The username of the "UPDATE_FORK_PAT" owner
+          git config --global user.name "username"
+          # The email of the "UPDATE_FORK_PAT" owner
+          git config --global user.email "email@example.com"
       - uses: sequelize/pr-auto-update-and-handle-conflicts@v1
         with:
           conflict-label: 'conflicted'
@@ -56,13 +64,23 @@ jobs:
           update-excluded-authors: 'bot/renovate'
           update-excluded-labels: 'no-autoupdate'
         env:
-          # The GITHUB_TOKEN will handle operations that the GitHub Bot can perform,
-          # such as searching the repository, adding/removing labels, and drafting PRs.
+          # The GITHUB_TOKEN to use for all operations, unless one of the two properties
+          # below are specified.
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
-          # The PAT is used to perform operations that the GitHub Bot cannot perform: updating the PR branch
-          # If not specified, the GITHUB_TOKEN will be used, in which case the GITHUB_TOKEN must be one
-          # with the necessary permission to update the PR branch (assuming the feature is enabled).
-          PAT: '${{ secrets.PAT }}'
+
+          # The default GITHUB_TOKEN does not cause the branch update to trigger subsequent workflows, 
+          # which means that CI checks will not run on the updated branch.
+          # To solve this, you need to use a different token. Either one that belongs to a user, or to a GitHub App.
+          # Defaults to the GITHUB_TOKEN env
+          UPDATE_BRANCH_PAT: '${{ secrets.UPDATE_BRANCH_PAT }}'
+          
+          # Same reasoning as UPDATE_BRANCH_PAT, but for updating branches from a fork.
+          # This one _requires_ using a user PAT. A GitHub App PAT will not work if the update includes workflow files.
+          # This token must have the Read & Write permissions for "contents" and "workflows"
+          # If you do not want to update branches from forks, you can set the "update-requires-source" option to "branches"
+          # Defaults to the GITHUB_TOKEN env
+          UPDATE_FORK_PAT: '${{ secrets.PAT }}'
+          UPDATE_FORK_USERNAME: 'ephys'
 ```
 
 ## Options
