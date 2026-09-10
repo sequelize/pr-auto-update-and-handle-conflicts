@@ -5,7 +5,7 @@
   "license": "MIT",
   "packageManager": "yarn@4.1.1",
   "engines": {
-    "node": ">=24"
+    "node": "24.x.x"
   },
   "scripts": {
     "build": "node build.js",
@@ -15,17 +15,17 @@
     "test:prettier": "prettier --check ."
   },
   "devDependencies": {
-    "@actions/core": "^3.0.1",
-    "@actions/github": "^9.1.1",
+    "@actions/core": "3.0.1",
+    "@actions/github": "9.1.1",
     "@ephys/eslint-config-typescript": "20.1.2",
-    "@octokit/webhooks-types": "^7.6.1",
+    "@octokit/webhooks-types": "7.6.1",
     "@rushstack/eslint-patch": "1.10.1",
-    "@sequelize/utils": "^7.0.0-alpha.48",
-    "@types/node": "^24",
-    "esbuild": "^0.28.2",
+    "@sequelize/utils": "7.0.0-alpha.48",
+    "@types/node": "24.13.4",
+    "esbuild": "0.28.2",
     "eslint": "8.57",
     "prettier": "3.2.5",
     "prettier-plugin-organize-imports": "3.2.4",
-    "typescript": "^5"
+    "typescript": "5.9.3"
   }
 }
