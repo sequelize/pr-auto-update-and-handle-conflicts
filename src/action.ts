@@ -1,5 +1,5 @@
-import core from '@actions/core';
-import github from '@actions/github';
+import * as core from '@actions/core';
+import * as github from '@actions/github';
 import type { PullRequestEvent, PushEvent } from '@octokit/webhooks-types';
 import { isString } from '@sequelize/utils';
 import childProcess from 'node:child_process';
@@ -42,6 +42,15 @@ const updateBranchBot = process.env.UPDATE_BRANCH_PAT
  */
 const updateForkPat = process.env.UPDATE_FORK_PAT || process.env.GITHUB_TOKEN;
 const updateForkUsername = process.env.UPDATE_FORK_USERNAME || 'x-access-token';
+
+// These constants must be declared before the top-level code that runs the action,
+// as esbuild compiles them to `var` and they would otherwise be undefined at that point.
+
+// GitHub's GraphQL API times out (HTTP 502) if a single page is too expensive to compute.
+const SEARCH_PAGE_SIZE = 50;
+
+// Mergeability can stay UNKNOWN forever, for instance when the head branch was deleted.
+const MAX_UNKNOWN_MERGEABILITY_ATTEMPTS = 5;
 
 function getCommaSeparatedInput(name: string) {
   return core
@@ -115,7 +124,6 @@ interface PullRequest {
   maintainerCanModify: boolean;
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
   number: number;
-  viewerCanUpdateBranch: boolean;
 }
 
 const pullRequestFragment = `
@@ -144,7 +152,6 @@ fragment PR on PullRequest {
     nameWithOwner
   }
   maintainerCanModify
-  viewerCanUpdateBranch
 }
 `;
 
@@ -216,7 +223,7 @@ async function processPullRequestEvent() {
   await processPr(repositoryId, pullRequest);
 }
 
-async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest) {
+async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest, attempt = 1) {
   switch (pullRequest.mergeable) {
     case 'CONFLICTING':
       await handleConflict(repositoryId, pullRequest);
@@ -234,12 +241,20 @@ async function processPr(repositoryId: RepositoryId, pullRequest: PullRequest) {
     }
 
     case 'UNKNOWN': {
+      if (attempt >= MAX_UNKNOWN_MERGEABILITY_ATTEMPTS) {
+        console.info(
+          `[PR ${pullRequest.number}] Conflict state is still not known after ${attempt} attempts, skipping.`,
+        );
+
+        break;
+      }
+
       console.info(`[PR ${pullRequest.number}] Conflict state is not yet known. Retrying.`);
-      // Conflicting state has not been computed yet. Try again in one second
+      // Conflicting state has not been computed yet. Try again in five seconds
       await setTimeout(5000);
 
       const updatedPr = await getPullRequest({ ...repositoryId, number: pullRequest.number });
-      await processPr(repositoryId, updatedPr);
+      await processPr(repositoryId, updatedPr, attempt + 1);
 
       break;
     }
@@ -304,7 +319,8 @@ async function updatePrBranch(repositoryId: RepositoryId, pullRequest: PullReque
   }
 
   // used to detect if branch is outdated. If the branch is up-to-date, this will be false.
-  if (!pullRequest.viewerCanUpdateBranch) {
+  // This field is expensive for GitHub to compute, so it is only requested for PRs that passed every other check.
+  if (!(await canViewerUpdateBranch(repositoryId, pullRequest.number))) {
     console.info(`[PR ${pullRequest.number}] Viewer cannot update branch, skipping update.`);
 
     return;
@@ -492,6 +508,31 @@ async function getPullRequest(params: { number: number; owner: string; repo: str
   return response.repository.pullRequest;
 }
 
+interface CanViewerUpdateBranchResponse {
+  repository: {
+    pullRequest: {
+      viewerCanUpdateBranch: boolean;
+    };
+  };
+}
+
+async function canViewerUpdateBranch(repositoryId: RepositoryId, number: number) {
+  const response: CanViewerUpdateBranchResponse = await githubBot.graphql(
+    `
+      query ($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) {
+            viewerCanUpdateBranch
+          }
+        }
+      }
+    `,
+    { ...repositoryId, number },
+  );
+
+  return response.repository.pullRequest.viewerCanUpdateBranch;
+}
+
 interface IterateResponse {
   search: {
     nodes: [PullRequest];
@@ -503,7 +544,7 @@ interface IterateResponse {
 }
 
 async function* iteratePullRequests(params: { search: string }) {
-  let cursor = null;
+  let cursor: string | null = null;
 
   while (true) {
     // eslint-disable-next-line no-await-in-loop -- fine in async iterators
@@ -511,9 +552,10 @@ async function* iteratePullRequests(params: { search: string }) {
       `
         ${pullRequestFragment}
 
-        query ($search: String!) {
+        query ($search: String!, $first: Int!, $cursor: String) {
           search(
-            first: 100
+            first: $first
+            after: $cursor
             type: ISSUE
             query: $search
           ) {
@@ -529,6 +571,7 @@ async function* iteratePullRequests(params: { search: string }) {
       `,
       {
         ...params,
+        first: SEARCH_PAGE_SIZE,
         cursor,
       },
     );
