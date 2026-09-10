@@ -63,7 +63,7 @@ outputs:
   conflicted-prs:
     description: 'The list of PRs numbers that have merge conflicts (comma-separated list)'
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'lib/action.mjs'
 branding:
   color: 'purple'
